@@ -1,17 +1,13 @@
 from flask import Flask, render_template
-from flask_socketio import SocketIO, emit, join_room, leave_room
-from PIL import ImageGrab
+from flask_socketio import SocketIO, emit
 import base64
-import io
-import threading
-import time
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret'
 socketio = SocketIO(app, cors_allowed_origins="*")
 
-streaming = False
 current_client = None
+latest_frame = None
 
 @app.route('/')
 def index():
@@ -22,54 +18,26 @@ def handle_connect():
     global current_client
     current_client = request.sid
     emit('status', {'data': 'Connecté au serveur'})
+    if latest_frame:
+        emit('frame', {'image': latest_frame})
 
-@socketio.on('start_stream')
-def start_stream():
-    global streaming
-    streaming = True
-    threading.Thread(target=stream_screen, daemon=True).start()
-
-def stream_screen():
-    global streaming
-    while streaming:
-        try:
-            img = ImageGrab.grab()
-            img.thumbnail((1280, 720))
-            
-            buffer = io.BytesIO()
-            img.save(buffer, format='JPEG', quality=60)
-            buffer.seek(0)
-            img_base64 = base64.b64encode(buffer.getvalue()).decode()
-            
-            socketio.emit('frame', {'image': img_base64}, to=current_client)
-            time.sleep(0.1)
-        except Exception as e:
-            print(f"Erreur stream: {e}")
+@socketio.on('send_frame')
+def handle_frame(data):
+    global latest_frame
+    latest_frame = data.get('image')
+    socketio.emit('frame', {'image': latest_frame})
 
 @socketio.on('mouse_move')
 def handle_mouse_move(data):
-    x, y = data['x'], data['y']
-    # Code pour bouger la souris
-    import pyautogui
-    pyautogui.moveTo(x, y, duration=0)
+    socketio.emit('mouse_event', {'type': 'move', 'x': data['x'], 'y': data['y']}, to=current_client)
 
-@socketio.on('click')
+@socketio.on('mouse_click')
 def handle_click(data):
-    import pyautogui
-    pyautogui.click()
+    socketio.emit('mouse_event', {'type': 'click', 'button': data.get('button', 'left')}, to=current_client)
 
-@socketio.on('disconnect')
-def handle_disconnect():
-    global streaming
-    streaming = False
+@socketio.on('key_press')
+def handle_key(data):
+    socketio.emit('key_event', {'type': 'press', 'key': data['key']}, to=current_client)
 
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000)
-Fichier 2 : requirements.txt
-
-
-Flask==2.3.0
-flask-socketio==5.3.0
-python-socketio==5.9.0
-Pillow==10.0.0
-pyautogui==0.9.53
