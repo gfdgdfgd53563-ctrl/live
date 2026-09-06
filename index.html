@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PCBot Remote</title>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            font-family: Arial, sans-serif;
+            color: #fff;
+        }
+
+        .container {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            background: #111;
+        }
+
+        .header {
+            background: #0066ff;
+            padding: 10px 20px;
+            font-size: 16px;
+            font-weight: bold;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .status {
+            font-size: 12px;
+            padding: 5px 10px;
+            background: rgba(0, 255, 100, 0.3);
+            border-radius: 5px;
+        }
+
+        .status.disconnected {
+            background: rgba(255, 0, 0, 0.3);
+        }
+
+        #screen {
+            flex: 1;
+            cursor: crosshair;
+            display: block;
+            background: #000;
+        }
+
+        .info {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 15px 20px;
+            border-radius: 5px;
+            border: 1px solid #0066ff;
+            font-size: 12px;
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <span>🖥️ PCBot Remote Control</span>
+            <span class="status disconnected" id="status">🔴 Déconnecté</span>
+        </div>
+        <canvas id="screen"></canvas>
+    </div>
+
+    <div class="info">
+        🖱️ Bouge = Souris<br>
+        🖱️ Click = Click<br>
+        ⌨️ Tape = Clavier<br>
+        ESC = Déconnecter
+    </div>
+
+    <script>
+        const socket = io();
+        const canvas = document.getElementById('screen');
+        const ctx = canvas.getContext('2d');
+        const statusEl = document.getElementById('status');
+
+        let connected = false;
+
+        // Resize canvas au max
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight - 50;
+        }
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        // Connexion
+        socket.on('connect', () => {
+            connected = true;
+            statusEl.textContent = '🟢 Connecté';
+            statusEl.classList.remove('disconnected');
+            socket.emit('start_stream');
+        });
+
+        socket.on('disconnect', () => {
+            connected = false;
+            statusEl.textContent = '🔴 Déconnecté';
+            statusEl.classList.add('disconnected');
+        });
+
+        // Réception des frames
+        socket.on('frame', (data) => {
+            const img = new Image();
+            img.src = 'data:image/jpeg;base64,' + data.image;
+            img.onload = () => {
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            };
+        });
+
+        // Contrôle DIRECT souris
+        canvas.addEventListener('mousemove', (e) => {
+            if (!connected) return;
+            
+            // Calcul position sur le vrai écran
+            const screenWidth = 1920; // À adapter
+            const screenHeight = 1080; // À adapter
+            
+            const x = Math.round((e.clientX / canvas.width) * screenWidth);
+            const y = Math.round((e.clientY / canvas.height) * screenHeight);
+            
+            socket.emit('mouse_move', {x, y});
+        });
+
+        // Click DIRECT
+        canvas.addEventListener('click', (e) => {
+            if (!connected) return;
+            socket.emit('mouse_click', {button: 'left'});
+        });
+
+        // Click droit
+        canvas.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            if (!connected) return;
+            socket.emit('mouse_click', {button: 'right'});
+        });
+
+        // Clavier DIRECT
+        document.addEventListener('keydown', (e) => {
+            if (!connected) return;
+            if (e.key === 'Escape') {
+                socket.disconnect();
+                return;
+            }
+            socket.emit('key_press', {key: e.key, code: e.code});
+        });
+
+        document.addEventListener('keyup', (e) => {
+            if (!connected) return;
+            socket.emit('key_release', {key: e.key, code: e.code});
+        });
+    </script>
+</body>
+</html>
